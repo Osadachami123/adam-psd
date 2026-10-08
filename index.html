@@ -66,9 +66,10 @@ const r2=x=>Math.round(x*100)/100,oos=r=>r.fractions.filter(f=>f.s!=null&&f.v>f.
 function toast(t){const e=$("toast");e.textContent=t;e.classList.remove("hide");e.style.opacity=1;setTimeout(()=>{e.style.opacity=0;setTimeout(()=>e.classList.add("hide"),300)},1800)}
 let started=false;
 function start(){if(started)return;started=true;$("date").value=today();
-db.ref("config").on("value",s=>{conf=s.val();if(!conf){db.ref("config").set(DEF);return}conf.machines=conf.machines||[];conf.products=conf.products||[];conf.products.forEach(p=>p.fractions=p.fractions||[]);renderAll()});
-db.ref("records").on("value",s=>{recs=[];s.forEach(c=>{recs.push({id:c.key,...c.val()})});recs.sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);renderAll()});
-db.ref(".info/connected").on("value",s=>$("sync").textContent=s.val()?"● online":"○ offline")}
+db.ref("config").on("value",s=>{conf=s.val();if(!conf){db.ref("config").set(DEF);return}conf.machines=conf.machines||[];conf.products=conf.products||[];conf.products.forEach(p=>p.fractions=p.fractions||[]);renderAll()},e=>{$("sync").textContent="✗ config: "+e.code;alert("Database error (config): "+e.message)});
+db.ref("records").on("value",s=>{recs=[];s.forEach(c=>{recs.push({id:c.key,...c.val()})});recs.sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);renderAll()},e=>{$("sync").textContent="✗ records: "+e.code;alert("Database error (records): "+e.message)});
+db.ref(".info/connected").on("value",s=>{$("sync").textContent=s.val()?"● online":"○ offline";$("sync").style.color=s.val()?"var(--ok)":"var(--bad)"});setTimeout(()=>{if(!conf){$("sync").textContent="○ cannot reach database";alert("Cannot reach the Firebase database.\n\nCheck: 1) internet, 2) open this page in Chrome (not a chat/file preview), 3) Realtime Database exists and Rules are published.")}},10000)}
+const need=()=>{if(!conf){alert("Not connected to the database yet. Wait for \"● online\" at the top.");return false}return true};
 function fillSel(id,list,any){const e=$(id),o=e.value;e.innerHTML=(any?'<option value="">All</option>':"")+list.map(x=>`<option>${esc(x)}</option>`).join("");if(list.includes(o)||(any&&o===""))e.value=o}
 function renderAll(){if(!conf)return;const ms=conf.machines,ps=conf.products.map(p=>p.name);
 fillSel("mach",ms);fillSel("prod",ps);fillSel("fm",ms,1);fillSel("fp",ps,1);fillSel("ep",ps);
@@ -88,7 +89,8 @@ const rest=r2(100-sum);au.value=rest>=0?rest.toFixed(2):"";
 $("tot").innerHTML=`Entered ${r2(sum).toFixed(2)} g `+(rest<0?'<span class="bad">✗ over 100 g, check the values</span>':filled.length<v.length?`<span class="mu">• ${v.length-filled.length} more to enter</span>`:`<span class="ok">✓ total 100.00 g</span>`)}
 $("prod").onchange=()=>{built="";renderAll()};$("mach").onchange=renderRecent;
 $("clr").onclick=()=>{document.querySelectorAll(".fi").forEach(x=>x.value="");$("bag").value="";calc()};
-$("save").onclick=()=>{const p=prodOf($("prod").value),a=[...document.querySelectorAll(".fi")],v=a.map(x=>parseFloat(x.value));
+$("save").onclick=()=>{if(!conf||!prodOf($("prod").value))return alert("Not connected to the database yet. Wait for \"● online\" at the top.");
+const p=prodOf($("prod").value),a=[...document.querySelectorAll(".fi")],v=a.map(x=>parseFloat(x.value));
 if(!$("bag").value.trim())return alert("Enter the bag / sample number.");if(!$("date").value)return alert("Select a date.");
 if(v.some(x=>!Number.isFinite(x)||x<0))return alert("Enter every fraction (0 or more).");
 const rest=r2(100-v.reduce((x,y)=>x+y,0));if(rest<0)return alert("Fractions add up to more than 100 g.");
@@ -128,16 +130,16 @@ $("ed").innerHTML=wp.fractions.map((f,i)=>`<div class="fr"><input class="fn" val
 function sync(){if(!wp)return;wp.name=$("en").value.trim();const n=[...document.querySelectorAll(".fn")],s=[...document.querySelectorAll(".fs")];
 wp.fractions=n.map((x,i)=>{const o={name:x.value.trim()||"F"+(i+1)};if(s[i].value!=="")o.spec=parseFloat(s[i].value);return o})}
 $("ep").onchange=()=>{wp=null;renderSet()};
-$("addf").onclick=()=>{if(!wp)return;sync();wp.fractions.push({name:""});drawEd()};
+$("addf").onclick=()=>{if(!need())return;if(!wp)return;sync();wp.fractions.push({name:""});drawEd()};
 const rmF=i=>{sync();if(wp.fractions.length<2)return alert("Keep at least two fractions.");wp.fractions.splice(i,1);drawEd()};
-$("savep").onclick=()=>{if(!wp)return;sync();if(!wp.name)return alert("Enter a product name.");
+$("savep").onclick=()=>{if(!need())return;if(!wp)return;sync();if(!wp.name)return alert("Enter a product name.");
 const i=conf.products.findIndex(p=>p.name===ep);if(conf.products.some((p,j)=>j!==i&&p.name===wp.name))return alert("A product with this name exists.");
 conf.products[i]=wp;db.ref("config/products").set(conf.products).then(()=>{ep=wp.name;built="";toast("Product saved")})};
-$("newp").onclick=()=>{const n=(prompt("New product name:")||"").trim();if(!n)return;if(conf.products.some(p=>p.name===n))return alert("That product already exists.");
+$("newp").onclick=()=>{if(!need())return;const n=(prompt("New product name:")||"").trim();if(!n)return;if(conf.products.some(p=>p.name===n))return alert("That product already exists.");
 conf.products.push({name:n,fractions:[{name:"+size"},{name:"-size"}]});db.ref("config/products").set(conf.products).then(()=>{$("ep").value=n;wp=null;renderSet()})};
-$("delp").onclick=()=>{if(conf.products.length<2)return alert("Keep at least one product.");if(!confirm("Delete product "+ep+"? Saved bags are kept."))return;
+$("delp").onclick=()=>{if(!need())return;if(conf.products.length<2)return alert("Keep at least one product.");if(!confirm("Delete product "+ep+"? Saved bags are kept."))return;
 conf.products=conf.products.filter(p=>p.name!==ep);wp=null;db.ref("config/products").set(conf.products)};
-$("addm").onclick=()=>{const n=$("nm").value.trim();if(!n)return;if(conf.machines.includes(n))return alert("Machine already exists.");conf.machines.push(n);$("nm").value="";db.ref("config/machines").set(conf.machines)};
-const delMach=i=>{if(conf.machines.length<2)return alert("Keep at least one machine.");if(confirm("Remove "+conf.machines[i]+"? Saved bags are kept."))db.ref("config/machines").set(conf.machines.filter((_,j)=>j!==i))};
+$("addm").onclick=()=>{if(!need())return;const n=$("nm").value.trim();if(!n)return;if(conf.machines.includes(n))return alert("Machine already exists.");conf.machines.push(n);$("nm").value="";db.ref("config/machines").set(conf.machines)};
+const delMach=i=>{if(!need())return;if(conf.machines.length<2)return alert("Keep at least one machine.");if(confirm("Remove "+conf.machines[i]+"? Saved bags are kept."))db.ref("config/machines").set(conf.machines.filter((_,j)=>j!==i))};
 document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{["entry","res","set"].forEach(v=>$(v).classList.toggle("hide",v!==b.dataset.v));document.querySelectorAll("#nav button").forEach(x=>x.classList.toggle("on",x===b))});
 </script></body></html>
